@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.graphics import renderPDF
 from svglib.svglib import svg2rlg
 
-from newline_iwb_converter import iwb2svg
+from newline_iwb_converter import iwb2svg, __version__
 
 
 def svg_to_pdf_page(svg_path):
@@ -160,6 +160,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Convert IWB files to PDF format."
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("iwb_file", help="Path to input .iwb file")
     parser.add_argument("-o", "--output", default="output.pdf", help="Output PDF file")
 

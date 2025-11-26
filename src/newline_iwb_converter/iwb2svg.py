@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 import base64
 import re
 from pathlib import Path
+from newline_iwb_converter import __version__
 
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK_NS = "http://www.w3.org/1999/xlink"
@@ -326,6 +327,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Extract SVG pages from an IWB file, with optional fill→stroke repair."
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("iwb_file", help="Path to input .iwb file")
     parser.add_argument("-o", "--output", default="svg_output", help="Output directory")
 
