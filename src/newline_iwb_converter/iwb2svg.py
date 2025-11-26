@@ -22,6 +22,7 @@ ET.register_namespace("", "http://www.imsglobal.org/xsd/iwb_v1p0")
 
 def remove_fills(svg_root):
     # Set fill="none" or rewrite style fill to none for all shape elements.
+    # Skip elements with id starting with "Autoshape" or "Word"
     shape_tags = {
         "path",
         "rect",
@@ -38,6 +39,11 @@ def remove_fills(svg_root):
         if not isinstance(tag, str):
             continue
         local = tag.split("}")[-1]
+
+        # Skip elements with id starting with "Autoshape" or "Word"
+        elem_id = elem.get("id", "")
+        if elem_id.startswith("Autoshape") or elem_id.startswith("Word"):
+            continue
 
         # If explicit presentation attribute exists, set it to none
         if "fill" in elem.attrib:
@@ -69,6 +75,46 @@ def remove_fills(svg_root):
         # If there was neither a fill attribute nor a style and this is a shape, set fill attribute
         if "fill" not in elem.attrib and not elem.get("style") and local in shape_tags:
             elem.set("fill", "none")
+
+
+def convert_textarea_to_text(svg_root):
+    """
+    Convert textarea elements to text elements, preserving all attributes and children.
+    """
+    # Find all textarea elements
+    textareas = []
+    for elem in svg_root.iter():
+        tag = elem.tag
+        if isinstance(tag, str) and tag.endswith("textarea"):
+            textareas.append(elem)
+    
+    # Convert each textarea to text
+    for textarea in textareas:
+        # Create new text element with same attributes
+        text_elem = ET.Element(f"{{{SVG_NS}}}text", attrib=textarea.attrib)
+        
+        # Copy all children
+        for child in textarea:
+            text_elem.append(child)
+        
+        # Copy text content
+        if textarea.text:
+            text_elem.text = textarea.text
+        if textarea.tail:
+            text_elem.tail = textarea.tail
+        
+        # Replace textarea with text in parent
+        parent = svg_root.find(".//" + textarea.tag + "/..")
+        if parent is not None:
+            index = list(parent).index(textarea)
+            parent[index] = text_elem
+        else:
+            # If not found as child, search more thoroughly
+            for elem in svg_root.iter():
+                if textarea in list(elem):
+                    index = list(elem).index(textarea)
+                    elem[index] = text_elem
+                    break
 
 
 def fix_svg_size(svg_root, margin=100):
@@ -205,6 +251,24 @@ def delete_background_images(svg_root):
                     break
 
 
+def fix_compressed_unexistent_images(svg_root, zip_file):
+    """Fix xlink:href for compressed images that do not exist in the zip."""
+    for img_elem in svg_root.findall(".//svg:image", {"svg": SVG_NS}):
+        href = img_elem.get(f"{{{XLINK_NS}}}href")
+        if href and href.startswith("images/") and href.endswith(".png"):
+            try:
+                zip_file.getinfo(href)
+            except KeyError:
+                # Image does not exist, try compressed version
+                compressed_href = href.replace("images/", "images/compressed_")
+                print(f"Fixing missing image href: {href} → {compressed_href}")
+                try:
+                    zip_file.getinfo(compressed_href)
+                    img_elem.set(f"{{{XLINK_NS}}}href", compressed_href)
+                except KeyError:
+                    pass  # Neither original nor compressed exists
+
+
 def process_images_data_uri(svg_root, zip_file):
     """Convert image xlink:href to data URIs from the zip file."""
     for img_elem in svg_root.findall(".//svg:image", {"svg": SVG_NS}):
@@ -297,6 +361,7 @@ def extract_iwb_to_svg(iwb_path, output_dir, fix_fills=True, fix_size=True, imag
                 svg_root.append(child)
 
             # ---- PROCESS IMAGES ----
+            fix_compressed_unexistent_images(svg_root, z)
             if images_mode == "data_uri":
                 process_images_data_uri(svg_root, z)
             # For "nothing" mode, leave href as-is
@@ -305,6 +370,9 @@ def extract_iwb_to_svg(iwb_path, output_dir, fix_fills=True, fix_size=True, imag
             # ---- DELETE BACKGROUND IMAGES ----
             if delete_background:
                 delete_background_images(svg_root)
+
+            # ---- CONVERT TEXTAREA TO TEXT ----
+            convert_textarea_to_text(svg_root)
 
             # ---- APPLY FIX OPTIONS ----
             if fix_fills:
