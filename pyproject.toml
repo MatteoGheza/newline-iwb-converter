@@ -5,10 +5,19 @@ description = "A converter utility for handling Newline whiteboard IWB files and
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "GPL-3.0-only"}
+authors = [
+  {name = "Matteo Gheza", email = "me@matteogheza.it"}
+]
 dependencies = [
     "reportlab>=4.0",
     "svglib>=1.4",
 ]
+
+[project.urls]
+Homepage = "https://github.com/matteogheza/newline-iwb-converter"
+Documentation = "https://github.com/matteogheza/newline-iwb-converter?tab=readme-ov-file#usage"
+Repository = "https://github.com/matteogheza/newline-iwb-converter.git"
+Issues = "https://github.com/matteogheza/newline-iwb-converter/issues"
 
 [project.scripts]
 iwb2svg = "newline_iwb_converter.iwb2svg:main"
