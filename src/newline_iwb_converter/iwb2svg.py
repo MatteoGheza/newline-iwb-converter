@@ -21,10 +21,7 @@ ET.register_namespace("", "http://www.imsglobal.org/xsd/iwb_v1p0")
 
 
 def remove_fills(svg_root):
-    """
-    Mimic Inkscape: "Select All" -> Fill -> None.
-    Set fill="none" or rewrite style fill to none for all shape elements.
-    """
+    # Set fill="none" or rewrite style fill to none for all shape elements.
     shape_tags = {
         "path",
         "rect",

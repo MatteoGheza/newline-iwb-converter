@@ -13,7 +13,7 @@ A converter utility for extracting SVG pages from Newline whiteboard IWB files, 
   - Embed images as base64 data URIs (default)
   - Copy images directory alongside SVGs
   - Keep external image references
-- **Optional fill removal** from shape elements (Inkscape-style)
+- **Optional fill removal** from shape elements
 - **Zero external dependencies for iwb2svg** - uses only Python standard library for SVG extraction
 
 ## Getting Started
