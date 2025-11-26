@@ -5,10 +5,14 @@ description = "A converter utility for handling Newline whiteboard IWB files and
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "GPL-3.0-only"}
-dependencies = []
+dependencies = [
+    "reportlab>=4.0",
+    "svglib>=1.4",
+]
 
 [project.scripts]
 iwb2svg = "newline_iwb_converter.iwb2svg:main"
+iwb2pdf = "newline_iwb_converter.iwb2pdf:main"
 
 [build-system]
 requires = ["setuptools", "wheel"]
