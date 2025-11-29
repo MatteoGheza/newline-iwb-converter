@@ -6,9 +6,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import logging
 from pathlib import Path
 
 from newline_iwb_converter.pdf_engines.base import BasePDFEngine
+
+logger = logging.getLogger("newline_iwb_converter.pdf_engines.inkscape")
 
 
 class InkscapeEngine(BasePDFEngine):
@@ -32,6 +35,7 @@ class InkscapeEngine(BasePDFEngine):
         inkscape_path = shutil.which("inkscape")
         if inkscape_path:
             self._inkscape_path = inkscape_path
+            logger.debug(f"Found Inkscape in PATH: {inkscape_path}")
             return inkscape_path
 
         # Common installation paths for different operating systems
@@ -64,8 +68,10 @@ class InkscapeEngine(BasePDFEngine):
         for path in common_paths:
             if Path(path).exists():
                 self._inkscape_path = path
+                logger.debug(f"Found Inkscape at: {path}")
                 return path
 
+        logger.warning("Inkscape not found in PATH or common installation paths")
         return None
 
     def is_available(self):
@@ -75,7 +81,12 @@ class InkscapeEngine(BasePDFEngine):
         Returns:
             True if Inkscape is available, False otherwise
         """
-        return self.find_inkscape() is not None
+        available = self.find_inkscape() is not None
+        if available:
+            logger.debug("Inkscape is available")
+        else:
+            logger.debug("Inkscape is not available")
+        return available
 
     def combine_svgs_to_pdf(self, svg_dir, output_pdf, **kwargs):
         """
@@ -86,6 +97,7 @@ class InkscapeEngine(BasePDFEngine):
             output_pdf: Path to output PDF file
             **kwargs: Unused for Inkscape engine
         """
+        logger.info(f"Starting SVG to PDF conversion using Inkscape for: {svg_dir}")
         # Get all SVG files, sorted by name
         svg_files = sorted(
             Path(svg_dir).glob("page_*.svg"),
@@ -93,18 +105,21 @@ class InkscapeEngine(BasePDFEngine):
         )
 
         if not svg_files:
-            print(f"No SVG files found in {svg_dir}", file=sys.stderr)
+            logger.error(f"No SVG files found in {svg_dir}")
             sys.exit(1)
 
+        logger.info(f"Found {len(svg_files)} SVG file(s) to convert")
         inkscape_path = self.find_inkscape()
         pdf_files = []
 
         with tempfile.TemporaryDirectory() as temp_dir:
+            logger.debug(f"Using temporary directory: {temp_dir}")
             # Convert each SVG to PDF using Inkscape
-            for svg_file in svg_files:
+            for idx, svg_file in enumerate(svg_files, 1):
                 temp_pdf = Path(temp_dir) / f"page_{svg_file.stem.split('_')[1]}.pdf"
 
                 try:
+                    logger.debug(f"Converting SVG to PDF: {svg_file.name}")
                     cmd = [
                         inkscape_path,
                         "--without-gui",
@@ -117,20 +132,21 @@ class InkscapeEngine(BasePDFEngine):
 
                     if result.returncode == 0:
                         pdf_files.append(temp_pdf)
-                        print(f"Converted: {svg_file.name} -> {temp_pdf.name}")
+                        logger.info(f"Converted ({idx}/{len(svg_files)}): {svg_file.name} -> {temp_pdf.name}")
                     else:
-                        print(f"Failed to convert {svg_file.name}: {result.stderr}", file=sys.stderr)
+                        logger.error(f"Failed to convert {svg_file.name}: {result.stderr}")
                         sys.exit(1)
 
                 except subprocess.TimeoutExpired:
-                    print(f"Inkscape conversion timed out for {svg_file.name}", file=sys.stderr)
+                    logger.error(f"Inkscape conversion timed out for {svg_file.name}")
                     sys.exit(1)
                 except Exception as e:
-                    print(f"Error converting {svg_file.name}: {e}", file=sys.stderr)
+                    logger.error(f"Error converting {svg_file.name}: {e}", exc_info=True)
                     sys.exit(1)
 
             # Merge all PDFs into one
             try:
+                logger.info(f"Merging {len(pdf_files)} PDF file(s) into {output_pdf}")
                 from PyPDF2 import PdfMerger
 
                 merger = PdfMerger()
@@ -138,14 +154,14 @@ class InkscapeEngine(BasePDFEngine):
                     merger.append(str(pdf_file))
                 merger.write(output_pdf)
                 merger.close()
-                print(f"Saved PDF: {output_pdf}")
+                logger.info(f"Successfully saved PDF: {output_pdf}")
 
             except ImportError:
                 # Fallback: copy first PDF as a workaround
-                print("PyPDF2 not available, using reportlab for PDF merging", file=sys.stderr)
+                logger.warning("PyPDF2 not available, using single-page fallback")
 
                 if pdf_files:
                     import shutil
                     shutil.copy(str(pdf_files[0]), output_pdf)
-                    print(f"Warning: Only first page saved. Install PyPDF2 for full merging: pip install PyPDF2", file=sys.stderr)
-                    print(f"Saved PDF: {output_pdf}")
+                    logger.warning("Only first page saved. Install PyPDF2 for full merging: pip install PyPDF2")
+                    logger.info(f"Saved PDF (single page): {output_pdf}")

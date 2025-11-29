@@ -9,8 +9,11 @@ import argparse
 import xml.etree.ElementTree as ET
 import base64
 import re
+import logging
 from pathlib import Path
-from newline_iwb_converter import __version__
+from newline_iwb_converter import __version__, configure_logging
+
+logger = logging.getLogger("newline_iwb_converter.iwb2svg")
 
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK_NS = "http://www.w3.org/1999/xlink"
@@ -183,6 +186,7 @@ def fix_svg_size(svg_root, margin=100):
         svg_root: The SVG root element
         margin: Safety margin to add around content (default: 100)
     """
+    logger.debug(f"Fixing SVG size with margin={margin}")
     try:
         # Get current SVG dimensions
         width_str = svg_root.get("width", "100%")
@@ -292,16 +296,17 @@ def fix_svg_size(svg_root, margin=100):
         if max_x > width or max_y > height:
             new_width = max(width, max_x + margin)
             new_height = max(height, max_y + margin)
-            svg_root.set("width", str(new_width))
-            svg_root.set("height", str(new_height))
-            print(f"Fixed SVG size: {width}x{height} → {new_width}x{new_height} (margin: {margin})")
+            logger.debug(f"Fixed SVG size: {width}x{height} -> {new_width}x{new_height} (margin: {margin})")
+        else:
+            logger.debug(f"SVG size is sufficient: {width}x{height}")
     
     except Exception as e:
-        print(f"Warning: Could not fix SVG size: {e}", file=sys.stderr)
+        logger.warning(f"Could not fix SVG size: {e}")
 
 
 def delete_background_images(svg_root):
     """Remove image elements with id starting with 'backgroundImage'."""
+    removed_count = 0
     for img_elem in svg_root.findall(".//svg:image", {"svg": SVG_NS}):
         elem_id = img_elem.get("id")
         if elem_id and elem_id.startswith("backgroundImage"):
@@ -309,11 +314,16 @@ def delete_background_images(svg_root):
             for parent in svg_root.iter():
                 if img_elem in list(parent):
                     parent.remove(img_elem)
+                    removed_count += 1
+                    logger.debug(f"Removed background image: {elem_id}")
                     break
+    if removed_count > 0:
+        logger.info(f"Removed {removed_count} background image(s)")
 
 
 def fix_compressed_unexistent_images(svg_root, zip_file):
     """Fix xlink:href for compressed images that do not exist in the zip."""
+    fixed_count = 0
     for img_elem in svg_root.findall(".//svg:image", {"svg": SVG_NS}):
         href = img_elem.get(f"{{{XLINK_NS}}}href")
         if href and href.startswith("images/") and href.endswith(".png"):
@@ -322,16 +332,20 @@ def fix_compressed_unexistent_images(svg_root, zip_file):
             except KeyError:
                 # Image does not exist, try compressed version
                 compressed_href = href.replace("images/", "images/compressed_")
-                print(f"Fixing missing image href: {href} → {compressed_href}")
+                logger.debug(f"Fixing missing image href: {href} -> {compressed_href}")
                 try:
                     zip_file.getinfo(compressed_href)
                     img_elem.set(f"{{{XLINK_NS}}}href", compressed_href)
+                    fixed_count += 1
                 except KeyError:
-                    pass  # Neither original nor compressed exists
+                    logger.warning(f"Image not found in IWB (neither original nor compressed): {href}")
+    if fixed_count > 0:
+        logger.debug(f"Fixed {fixed_count} missing image reference(s)")
 
 
 def process_images_data_uri(svg_root, zip_file):
     """Convert image xlink:href to data URIs from the zip file."""
+    converted_count = 0
     for img_elem in svg_root.findall(".//svg:image", {"svg": SVG_NS}):
         href = img_elem.get(f"{{{XLINK_NS}}}href")
         if href and href.startswith("images/"):
@@ -352,13 +366,18 @@ def process_images_data_uri(svg_root, zip_file):
                 b64_data = base64.b64encode(image_data).decode("utf-8")
                 data_uri = f"data:{mime_type};base64,{b64_data}"
                 img_elem.set(f"{{{XLINK_NS}}}href", data_uri)
+                converted_count += 1
+                logger.debug(f"Converted image to data URI: {href} ({len(image_data)} bytes)")
             except KeyError:
-                print(f"Warning: Image file not found in IWB: {href}", file=sys.stderr)
+                logger.warning(f"Image file not found in IWB: {href}")
+    if converted_count > 0:
+        logger.debug(f"Converted {converted_count} image(s) to data URIs")
 
 
 def process_images_copy_directory(svg_root, zip_file, output_dir):
     """Copy the images directory from the IWB file to the output directory."""
     # Extract all images from the zip
+    copied_count = 0
     for name in zip_file.namelist():
         if name.startswith("images/"):
             target_path = os.path.join(output_dir, name)
@@ -366,6 +385,10 @@ def process_images_copy_directory(svg_root, zip_file, output_dir):
             with zip_file.open(name) as source:
                 with open(target_path, "wb") as target:
                     target.write(source.read())
+            copied_count += 1
+            logger.debug(f"Copied image: {name}")
+    if copied_count > 0:
+        logger.info(f"Copied {copied_count} image file(s) to {output_dir}")
 
 
 def extract_iwb_to_svg(iwb_path, output_dir, fix_fills=True, fix_size=True, images_mode="data_uri", delete_background=False):
@@ -380,8 +403,11 @@ def extract_iwb_to_svg(iwb_path, output_dir, fix_fills=True, fix_size=True, imag
         images_mode: How to handle images - "nothing", "copy_directory", or "data_uri"
         delete_background: Whether to remove background image elements
     """
+    logger.info(f"Extracting IWB to SVG: {iwb_path} -> {output_dir}")
+    
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
+        logger.debug(f"Created output directory: {output_dir}")
 
     with zipfile.ZipFile(iwb_path, "r") as z:
         xml_name = None
@@ -391,9 +417,10 @@ def extract_iwb_to_svg(iwb_path, output_dir, fix_fills=True, fix_size=True, imag
                 break
 
         if xml_name is None:
-            print("No XML file found in IWB.", file=sys.stderr)
+            logger.error("No XML file found in IWB")
             sys.exit(1)
 
+        logger.debug(f"Found XML file in IWB: {xml_name}")
         xml_data = z.read(xml_name)
         root = ET.fromstring(xml_data)
 
@@ -401,8 +428,10 @@ def extract_iwb_to_svg(iwb_path, output_dir, fix_fills=True, fix_size=True, imag
         pages = root.findall(".//svg:page", ns)
 
         if not pages:
-            print("No <svg:page> elements found.", file=sys.stderr)
+            logger.error("No <svg:page> elements found in XML")
             sys.exit(1)
+        
+        logger.info(f"Found {len(pages)} page(s) in IWB file")
 
         # Handle images directory copy first if needed
         if images_mode == "copy_directory":
@@ -446,14 +475,19 @@ def extract_iwb_to_svg(iwb_path, output_dir, fix_fills=True, fix_size=True, imag
             ET.ElementTree(svg_root).write(
                 out_path, encoding="utf-8", xml_declaration=True
             )
-            print(f"Saved: {out_path}")
+            logger.debug(f"Saved: {out_path}")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Extract SVG pages from an IWB file, with optional fill→stroke repair."
+        description="Extract SVG pages from an IWB file, with optional fill->stroke repair."
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Enable verbose (debug) logging"
+    )
     parser.add_argument("iwb_file", help="Path to input .iwb file")
     parser.add_argument("-o", "--output", default="svg_output", help="Output directory")
 
@@ -502,15 +536,24 @@ def main():
 
     parser.set_defaults(fix_fills=True, fix_size=True, delete_background=False)
     args = parser.parse_args()
+    
+    # Configure logging based on verbosity
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    configure_logging(level=log_level)
 
-    extract_iwb_to_svg(
-        args.iwb_file,
-        args.output,
-        fix_fills=args.fix_fills,
-        fix_size=args.fix_size,
-        images_mode=args.images_mode,
-        delete_background=args.delete_background,
-    )
+    try:
+        extract_iwb_to_svg(
+            args.iwb_file,
+            args.output,
+            fix_fills=args.fix_fills,
+            fix_size=args.fix_size,
+            images_mode=args.images_mode,
+            delete_background=args.delete_background,
+        )
+        logger.info("SVG extraction completed successfully")
+    except Exception as e:
+        logger.error(f"Failed to extract SVG: {e}", exc_info=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,10 @@
 
 """Base class for PDF conversion engines."""
 
+import logging
 from abc import ABC, abstractmethod
+
+logger = logging.getLogger("newline_iwb_converter.pdf_engines")
 
 
 class BasePDFEngine(ABC):
@@ -32,4 +35,6 @@ class BasePDFEngine(ABC):
 
     def get_name(self):
         """Get the name of the engine."""
-        return self.__class__.__name__
+        engine_name = self.__class__.__name__
+        logger.debug(f"PDF engine: {engine_name}")
+        return engine_name

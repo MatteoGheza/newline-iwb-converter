@@ -3,6 +3,7 @@
 """SVGlib PDF conversion engine."""
 
 import sys
+import logging
 from pathlib import Path
 
 from reportlab.pdfgen import canvas
@@ -10,6 +11,8 @@ from reportlab.graphics import renderPDF
 from svglib.svglib import svg2rlg
 
 from newline_iwb_converter.pdf_engines.base import BasePDFEngine
+
+logger = logging.getLogger("newline_iwb_converter.pdf_engines.svglib")
 
 
 class SvglibEngine(BasePDFEngine):
@@ -22,6 +25,7 @@ class SvglibEngine(BasePDFEngine):
         Returns:
             True (svglib is always available as a dependency)
         """
+        logger.debug("svglib is available (always available as a dependency)")
         return True
 
     def svg_to_pdf_page(self, svg_path):
@@ -35,10 +39,13 @@ class SvglibEngine(BasePDFEngine):
             ReportLab drawing object or None if conversion failed
         """
         try:
+            logger.debug(f"Converting SVG to ReportLab drawing: {svg_path}")
             drawing = svg2rlg(svg_path)
+            if drawing:
+                logger.debug(f"Successfully converted {svg_path} to drawing ({drawing.width}x{drawing.height})")
             return drawing
         except Exception as e:
-            print(f"Warning: Could not convert {svg_path} to drawing: {e}", file=sys.stderr)
+            logger.warning(f"Could not convert {svg_path} to drawing: {e}")
             return None
 
     def combine_svgs_to_pdf(self, svg_dir, output_pdf, uniform_size=False, **kwargs):
@@ -52,6 +59,7 @@ class SvglibEngine(BasePDFEngine):
                           If False, each page is sized independently (default).
             **kwargs: Additional options (unused)
         """
+        logger.info(f"Starting SVG to PDF conversion using svglib for: {svg_dir}")
         # Get all SVG files, sorted by name
         svg_files = sorted(
             Path(svg_dir).glob("page_*.svg"),
@@ -59,9 +67,10 @@ class SvglibEngine(BasePDFEngine):
         )
 
         if not svg_files:
-            print(f"No SVG files found in {svg_dir}", file=sys.stderr)
+            logger.error(f"No SVG files found in {svg_dir}")
             sys.exit(1)
 
+        logger.info(f"Found {len(svg_files)} SVG file(s) to convert")
         # If uniform size is requested, first pass to find max dimensions
         max_width = 0
         max_height = 0
@@ -70,7 +79,7 @@ class SvglibEngine(BasePDFEngine):
         for svg_file in svg_files:
             drawing = self.svg_to_pdf_page(str(svg_file))
             if drawing is None:
-                print(f"Skipping {svg_file}", file=sys.stderr)
+                logger.warning(f"Skipping {svg_file} (conversion failed)")
                 drawings.append(None)
                 continue
             drawings.append(drawing)
@@ -82,11 +91,13 @@ class SvglibEngine(BasePDFEngine):
             padding = 10
             uniform_page_width = max_width + padding * 2
             uniform_page_height = max_height + padding * 2
+            logger.debug(f"Uniform page size set to: {uniform_page_width}x{uniform_page_height}")
 
         # Create PDF
+        logger.debug(f"Creating PDF canvas: {output_pdf}")
         pdf_canvas = canvas.Canvas(output_pdf)
 
-        for idx, (svg_file, drawing) in enumerate(zip(svg_files, drawings)):
+        for idx, (svg_file, drawing) in enumerate(zip(svg_files, drawings), 1):
             if drawing is None:
                 continue
 
@@ -122,13 +133,13 @@ class SvglibEngine(BasePDFEngine):
             pdf_canvas.restoreState()
 
             # Add new page for next SVG (except for the last one)
-            if idx < len(drawings) - 1:
+            if idx < len(drawings):
                 pdf_canvas.showPage()
 
             if uniform_size:
-                print(f"Added to PDF: {svg_file.name} (centered on {page_width}x{page_height})")
+                logger.info(f"Added to PDF ({idx}/{len(svg_files)}): {svg_file.name} (centered on {page_width}x{page_height})")
             else:
-                print(f"Added to PDF: {svg_file.name} ({page_width}x{page_height})")
+                logger.info(f"Added to PDF ({idx}/{len(svg_files)}): {svg_file.name} ({page_width}x{page_height})")
 
         pdf_canvas.save()
-        print(f"Saved PDF: {output_pdf}")
+        logger.info(f"Successfully saved PDF: {output_pdf}")

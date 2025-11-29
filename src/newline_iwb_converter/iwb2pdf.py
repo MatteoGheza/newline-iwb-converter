@@ -5,9 +5,12 @@
 import sys
 import argparse
 import tempfile
+import logging
 
-from newline_iwb_converter import iwb2svg, __version__
+from newline_iwb_converter import iwb2svg, __version__, configure_logging
 from newline_iwb_converter.pdf_engines import InkscapeEngine, SvglibEngine
+
+logger = logging.getLogger("newline_iwb_converter.iwb2pdf")
 
 
 def get_pdf_engine(use_inkscape=None):
@@ -29,11 +32,13 @@ def get_pdf_engine(use_inkscape=None):
     if use_inkscape:
         inkscape_engine = InkscapeEngine()
         if inkscape_engine.is_available():
-            print(f"Using Inkscape for SVG to PDF conversion: {inkscape_engine.find_inkscape()}")
+            inkscape_path = inkscape_engine.find_inkscape()
+            logger.info(f"Using Inkscape for SVG to PDF conversion: {inkscape_path}")
             return inkscape_engine
         else:
-            print("Inkscape requested but not found, falling back to svglib", file=sys.stderr)
+            logger.warning("Inkscape requested but not found, falling back to svglib")
 
+    logger.debug("Using svglib for PDF conversion")
     return SvglibEngine()
 
 
@@ -49,6 +54,7 @@ def combine_svgs_to_pdf(svg_dir, output_pdf, uniform_size=False, use_inkscape=No
         use_inkscape: If True, use Inkscape for conversion. If False, use svglib.
                       If None, auto-detect (use Inkscape if available).
     """
+    logger.debug(f"Combining SVGs from {svg_dir} into {output_pdf}")
     engine = get_pdf_engine(use_inkscape)
     engine.combine_svgs_to_pdf(svg_dir, output_pdf, uniform_size=uniform_size)
 
@@ -67,9 +73,10 @@ def extract_iwb_to_pdf(iwb_path, output_pdf, fix_fills=True, fix_size=True, dele
         use_inkscape: If True, use Inkscape for conversion. If False, use svglib.
                       If None, auto-detect (use Inkscape if available).
     """
+    logger.info(f"Starting IWB to PDF conversion: {iwb_path} -> {output_pdf}")
     # Create temporary directory for SVG extraction
     with tempfile.TemporaryDirectory() as temp_dir:
-        print(f"Extracting SVGs to temporary directory: {temp_dir}")
+        logger.debug(f"Extracting SVGs to temporary directory: {temp_dir}")
         
         # Extract SVGs using iwb2svg
         iwb2svg.extract_iwb_to_svg(
@@ -81,10 +88,12 @@ def extract_iwb_to_pdf(iwb_path, output_pdf, fix_fills=True, fix_size=True, dele
             delete_background=delete_background,
         )
         
-        print(f"Converting SVGs to PDF: {output_pdf}")
+        logger.debug(f"Converting SVGs to PDF: {output_pdf}")
         
         # Combine SVGs to PDF
         combine_svgs_to_pdf(temp_dir, output_pdf, uniform_size=uniform_size, use_inkscape=use_inkscape)
+    
+    logger.info(f"Successfully created PDF: {output_pdf}")
 
 
 def main():
@@ -92,6 +101,11 @@ def main():
         description="Convert IWB files to PDF format."
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Enable verbose (debug) logging"
+    )
     parser.add_argument("iwb_file", help="Path to input .iwb file")
     parser.add_argument("-o", "--output", default="output.pdf", help="Output PDF file")
 
@@ -160,16 +174,24 @@ def main():
 
     parser.set_defaults(fix_fills=True, fix_size=True, delete_background=False, uniform_size=False, use_inkscape=None)
     args = parser.parse_args()
+    
+    # Configure logging based on verbosity
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    configure_logging(level=log_level)
 
-    extract_iwb_to_pdf(
-        args.iwb_file,
-        args.output,
-        fix_fills=args.fix_fills,
-        fix_size=args.fix_size,
-        delete_background=args.delete_background,
-        uniform_size=args.uniform_size,
-        use_inkscape=args.use_inkscape,
-    )
+    try:
+        extract_iwb_to_pdf(
+            args.iwb_file,
+            args.output,
+            fix_fills=args.fix_fills,
+            fix_size=args.fix_size,
+            delete_background=args.delete_background,
+            uniform_size=args.uniform_size,
+            use_inkscape=args.use_inkscape,
+        )
+    except Exception as e:
+        logger.error(f"Failed to convert IWB to PDF: {e}", exc_info=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
