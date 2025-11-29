@@ -80,6 +80,7 @@ def remove_fills(svg_root):
 def convert_textarea_to_text(svg_root):
     """
     Convert textarea elements to text elements, preserving all attributes and children.
+    Replace tbreak elements with tspan elements that have proper line spacing (dy="1.2em").
     """
     # Find all textarea elements
     textareas = []
@@ -93,11 +94,45 @@ def convert_textarea_to_text(svg_root):
         # Create new text element with same attributes
         text_elem = ET.Element(f"{{{SVG_NS}}}text", attrib=textarea.attrib)
         
-        # Copy all children
-        for child in textarea:
-            text_elem.append(child)
+        # Get the x coordinate for line breaks (from parent text element)
+        text_x = textarea.attrib.get("x", "0")
         
-        # Copy text content
+        # Process children, replacing tbreak elements with properly spaced tspan elements
+        for child in textarea:
+            tag = child.tag
+            if isinstance(tag, str) and tag.endswith("tbreak"):
+                # Skip tbreak elements - they will be handled by the following tspan
+                continue
+            
+            # Check if this tspan is preceded by a tbreak
+            child_index = list(textarea).index(child)
+            has_preceding_tbreak = False
+            if child_index > 0:
+                prev_sibling = textarea[child_index - 1]
+                prev_tag = prev_sibling.tag
+                if isinstance(prev_tag, str) and prev_tag.endswith("tbreak"):
+                    has_preceding_tbreak = True
+            
+            # Copy the child element
+            new_child = child
+            if has_preceding_tbreak:
+                # Add line break attributes to tspan that follows tbreak
+                if isinstance(tag, str) and tag.endswith("tspan"):
+                    # Create a copy to modify
+                    new_child = ET.Element(tag, attrib=child.attrib)
+                    # Add x coordinate and line spacing
+                    new_child.set("x", text_x)
+                    new_child.set("dy", "1.2em")
+                    # Copy text and tail
+                    new_child.text = child.text
+                    new_child.tail = child.tail
+                    # Copy all children
+                    for grandchild in child:
+                        new_child.append(grandchild)
+            
+            text_elem.append(new_child)
+        
+        # Copy text content from textarea
         if textarea.text:
             text_elem.text = textarea.text
         if textarea.tail:
